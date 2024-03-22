@@ -1,3 +1,5 @@
 from pytest import ExitCode
 
-ExitCode(5)
+import manage
+def test_main():
+    pass
