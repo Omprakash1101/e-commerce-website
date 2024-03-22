@@ -1,5 +1,5 @@
 from pytest import ExitCode
 
-import manage
+import random
 def test_main():
     pass
