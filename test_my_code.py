@@ -1,5 +1,5 @@
 from pytest import ExitCode
 
-import random
+from ecommercesite import manage
 def test_main():
     pass
