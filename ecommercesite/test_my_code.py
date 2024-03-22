@@ -1,3 +1,3 @@
 from pytest import ExitCode
 
-print(ExitCode())
+ExitCode(5)
