@@ -1,87 +1,75 @@
-# This workflow will build and push a Python application to an Azure Web App when a commit is pushed to your default branch.
-#
-# This workflow assumes you have already created the target Azure App Service web app.
-# For instructions see https://docs.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=bash&pivots=python-framework-flask
-#
-# To configure this workflow:
-#
-# 1. Download the Publish Profile for your Azure Web App. You can download this file from the Overview page of your Web App in the Azure Portal.
-#    For more information: https://docs.microsoft.com/en-us/azure/app-service/deploy-github-actions?tabs=applevel#generate-deployment-credentials
-#
-# 2. Create a secret in your repository named AZURE_WEBAPP_PUBLISH_PROFILE, paste the publish profile contents as the value of the secret.
-#    For instructions on obtaining the publish profile see: https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret
-#
-# 3. Change the value for the AZURE_WEBAPP_NAME. Optionally, change the PYTHON_VERSION environment variables below.
-#
-# For more information on GitHub Actions for Azure: https://github.com/Azure/Actions
-# For more information on the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# For more samples to get started with GitHub Action workflows to deploy to Azure: https://github.com/Azure/actions-workflow-samples
+#  Template to deploy a Python Django application to the Google App Engine standard environment
 
-name: Build and deploy Python app to Azure Web App
+#  This template allows you to deploy your Python Django application to the Google App Engine.
+#  The workflow allows running tests, code linting and security scans on feature branches (as well as master).
+#  The Python Django application will be deployed after the code is merged to master.
 
-env:
-  AZURE_WEBAPP_NAME: jayom2005opm
-  # set this to the name of your Azure Web App
-  PYTHON_VERSION: '3.8'              # set this to the Python version to use
+# Prerequisites: $KEY_FILE and $PROJECT setup in the Deployment variables.
+# For advanced cases, please, follow examples from the pipe's README https://bitbucket.org/atlassian/google-app-engine-deploy/src/master/README.md
+# Your environment variables should also be declared in the app.yaml.template.
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+image: python:3.8
 
-permissions:
-  contents: read
+# Workflow Configuration
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Build and Test
+            caches:
+              - pip
+            script:
+              # Use a in-memory sqlite3 database
+              - export TRAMPOLINE_CI=true
+              - pip install -r requirements.txt
+              - pip install -r requirements-test.txt
+              - python manage.py migrate
+              - python manage.py test
+        - step:
+            name: Lint the python code
+            script:
+              - pip install flake8
+              # Command-line utility for enforcing style (PEP-0008) consistency across Python projects https://flake8.pycqa.org/en/latest/manpage.html
+              - flake8 . --extend-exclude=dist,build,static,migrations
+              # excluded by Default: ['.svn', 'CVS', '.bzr', '.hg', '.git', '__pycache__', '.tox', '.eggs', '*.egg']
 
-    steps:
-      - uses: actions/checkout@v3
+  branches:
+    master:
+      - parallel:
+        - step:
+            name: Build and Test
+            caches:
+              - pip
+            script:
+              # Use a in-memory sqlite3 database
+              - export TRAMPOLINE_CI=true
+              - pip install -r requirements.txt
+              - pip install -r requirements-test.txt
+              - python manage.py migrate
+              - python manage.py test
+        - step:
+            name: Security Scan
+            script:
+              # Run a security scan for sensitive data.
+              # See more security tools at https://bitbucket.org/product/features/pipelines/integrations?&category=security
+              - pipe: atlassian/git-secrets-scan:0.5.1
+      - step:
+          name: Deploy to Production
+          deployment: Production
+          trigger: manual
+          image: atlassian/default-image:3
+          script:
+            # Substitute the values of environment variables to app.yaml
+            # https://www.gnu.org/software/gettext/manual/html_node/envsubst-Invocation.html
+            - apt install -y gettext-base
+            - envsubst < app.yaml.template > app.yaml
 
-      - name: Set up Python version
-        uses: actions/setup-python@v3.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+            # Deploy your Django app to the Google App Engine
+            # See more details https://bitbucket.org/atlassian/google-app-engine-deploy/src/master/
+            - pipe: atlassian/google-app-engine-deploy:0.7.3
+              variables:
+                KEY_FILE: $KEY_FILE
+                PROJECT: $PROJECT
 
-      - name: Create and start virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
-
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v3
-        with:
-          name: python-app
-          path: |
-            .
-            !venv/
-
-  deploy:
-    permissions:
-      contents: none
-    runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: 'Development'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-
-    steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v3
-        with:
-          name: python-app
-          path: .
-
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+            # add your app DB migrations workflow if exists
